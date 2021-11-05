@@ -1,0 +1,17 @@
+{
+  "film_work_pg": {
+    "dsn": {
+      "dbname": "movies",
+      "user": "postgres",
+      "password": "postgres",
+      "host": "127.0.0.1",
+      "port": 5432
+    },
+    "state_file_path": "state.json",
+    "fetch_delay": 0.1,
+    "limit": 100,
+    "order_field": ["updated_at"],
+    "state_field": ["updated_at"],
+    "sql_query": "SELECT id, updated_at\n\tFROM content.film_work"
+  }
+}
