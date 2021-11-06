@@ -7,7 +7,7 @@
       "host": "127.0.0.1",
       "port": 5432
     },
-    "state_file_path": "state.json",
+    "state_file_path": "postgres_to_es/state.json",
     "fetch_delay": 0.1,
     "limit": 100,
     "order_field": ["updated_at"],

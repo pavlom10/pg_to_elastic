@@ -1,7 +1,7 @@
 from psycopg2.extensions import connection as _connection
 
 
-def get_raw_data_about_films(conn: _connection, fw_ids: tuple) -> dict:
+def _get_raw_data_about_films(conn: _connection, fw_ids: tuple) -> dict:
     """Извлекает по списку id все данные о фильмах, в том числе персон и жанры."""
     cur = conn.cursor()
 
@@ -29,7 +29,7 @@ def get_raw_data_about_films(conn: _connection, fw_ids: tuple) -> dict:
     return cur.fetchall()
 
 
-def transform_data_for_elasticsearch(rows: dict) -> dict:
+def _transform_data_for_elasticsearch(rows: dict) -> dict:
     """Подготавливает данные из Postgres к записи в Elasticsearch."""
     result = {}
     genres = {}
@@ -69,7 +69,7 @@ def transform_data_for_elasticsearch(rows: dict) -> dict:
     return result
 
 
-def get_data_with_updated_persons(conn: _connection, state, limit: int = 1000) -> list:
+def _get_data_with_updated_persons(conn: _connection, state, limit: int = 1000) -> list:
     """Получает подготовленные данные о фильмах в которых изменились актеры."""
 
     cur = conn.cursor()
@@ -84,7 +84,7 @@ def get_data_with_updated_persons(conn: _connection, state, limit: int = 1000) -
     rows = cur.fetchmany(limit)
 
     if len(rows) == 0:
-        return None
+        return []
 
     person_ids = [row['id'] for row in rows]
 
@@ -102,13 +102,10 @@ def get_data_with_updated_persons(conn: _connection, state, limit: int = 1000) -
     rows = cur.fetchmany(limit)
     fw_ids = [row['id'] for row in rows]
 
-    raw_data = get_raw_data_about_films(conn, fw_ids)
-    data = transform_data_for_elasticsearch(raw_data)
-
-    return data
+    return fw_ids
 
 
-def get_data_with_updated_genres(conn: _connection, state, limit: int = 1000) -> list:
+def _get_data_with_updated_genres(conn: _connection, state, limit: int = 1000) -> list:
     """Получает подготовленные данные о фильмах в которых изменились жанры."""
 
     cur = conn.cursor()
@@ -123,7 +120,7 @@ def get_data_with_updated_genres(conn: _connection, state, limit: int = 1000) ->
     rows = cur.fetchmany(limit)
 
     if len(rows) == 0:
-        return None
+        return []
 
     person_ids = [row['id'] for row in rows]
 
@@ -141,13 +138,10 @@ def get_data_with_updated_genres(conn: _connection, state, limit: int = 1000) ->
     rows = cur.fetchmany(limit)
     fw_ids = [row['id'] for row in rows]
 
-    raw_data = get_raw_data_about_films(conn, fw_ids)
-    data = transform_data_for_elasticsearch(raw_data)
-
-    return data
+    return fw_ids
 
 
-def get_data_with_updated_films(conn: _connection, state, limit: int = 1000) -> list:
+def _get_data_with_updated_films(conn: _connection, state, limit: int = 1000) -> list:
     """Получает подготовленные данные о обновленных фильмах."""
 
     cur = conn.cursor()
@@ -162,15 +156,35 @@ def get_data_with_updated_films(conn: _connection, state, limit: int = 1000) -> 
     rows = cur.fetchmany(limit)
 
     if len(rows) == 0:
-        return None
+        return []
 
     new_updated_at = rows[-1]['updated_at']
     state.set_state('film_updated_at', str(new_updated_at))
 
     fw_ids = [row['id'] for row in rows]
 
-    raw_data = get_raw_data_about_films(conn, fw_ids)
-    data = transform_data_for_elasticsearch(raw_data)
+    print(len(fw_ids))
+
+    return fw_ids
+
+
+def get_updated_film_data(conn: _connection, state, limit: int = 1000):
+    """
+    Собирает информацию об обновленных персонах, жанрах и фильмах.
+    Объединяет ее в общий список обновленных id фильмов,
+    получает данные и преобразовывает их для выгрузки в Elasticsearch.
+    """
+
+    persons_fw_ids = _get_data_with_updated_persons(conn, state, limit)
+    genres_fw_ids = _get_data_with_updated_genres(conn, state, limit)
+    updated_fw_ids = _get_data_with_updated_films(conn, state, limit)
+
+    fw_ids = set(persons_fw_ids + genres_fw_ids + updated_fw_ids)
+
+    if len(fw_ids) == 0:
+        return None
+
+    raw_data = _get_raw_data_about_films(conn, fw_ids)
+    data = _transform_data_for_elasticsearch(raw_data)
 
     return data
-

@@ -7,10 +7,10 @@ from pydantic import BaseModel
 from psycopg2.extras import DictCursor
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers
-from functools import wraps
 
 import pg_extractor
 import storage
+from backoff import backoff
 
 
 class DSNSettings(BaseModel):
@@ -35,29 +35,6 @@ class Config(BaseModel):
     film_work_pg: PostgresSettings
 
 
-def backoff(start_sleep_time=0.1, factor=2, border_sleep_time=10):
-    """
-    Функция для повторного выполнения функции через некоторое время, если возникла ошибка.
-    Использует наивный экспоненциальный рост времени повтора (factor)
-    до граничного времени ожидания (border_sleep_time).
-    """
-
-    def func_wrapper(func):
-        @wraps(func)
-        def inner(*args, **kwargs):
-            t = start_sleep_time
-            while True:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    logging.exception(e)
-                    time.sleep(t)
-                    t = t * factor if t < border_sleep_time else border_sleep_time
-        return inner
-
-    return func_wrapper
-
-
 def load_data_to_elasticsearch(data: dict) -> None:
     """Загружает заранее подготовленные данные в Elasticsearch."""
     es = Elasticsearch()
@@ -75,28 +52,15 @@ def load_data_to_elasticsearch(data: dict) -> None:
     es.transport.close()
 
 
-@backoff()
+@backoff(logging)
 def do_extract(dsn: dict, state: storage.State, limit: int = 100, delay: float = 0.1) -> None:
     """
     Основная функция, выполняющая загрузку данных.
-    Последовательно запрашивает новых персон, жанры и фильмы и обновляет данные в Elasticsearch.
-    Между запросами выполняется задержка delay, ошибки перехыватываются декоратором @backoff
+    Запрашивает обновленные данные в Postgres и загружает их в Elasticsearch.
     """
     pg_conn = psycopg2.connect(**dsn, cursor_factory=DictCursor)
 
-    data = pg_extractor.get_data_with_updated_persons(pg_conn, state, limit)
-    if data:
-        load_data_to_elasticsearch(data)
-
-    time.sleep(delay)
-
-    data = pg_extractor.get_data_with_updated_genres(pg_conn, state, limit)
-    if data:
-        load_data_to_elasticsearch(data)
-
-    time.sleep(delay)
-
-    data = pg_extractor.get_data_with_updated_films(pg_conn, state, limit)
+    data = pg_extractor.get_updated_film_data(pg_conn, state, limit)
     if data:
         load_data_to_elasticsearch(data)
 
@@ -108,7 +72,7 @@ def do_extract(dsn: dict, state: storage.State, limit: int = 100, delay: float =
 if __name__ == '__main__':
 
     # Параметры подключения к Postgres
-    config = Config.parse_file('config.json')
+    config = Config.parse_file('postgres_to_es/config.json')
     dsn = dict(config.film_work_pg.dsn)
 
     # Стейт для хранения состояния
@@ -121,6 +85,3 @@ if __name__ == '__main__':
 
     while True:
         do_extract(dsn, state, limit, delay)
-
-
-
